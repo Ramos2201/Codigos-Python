@@ -1,0 +1,18 @@
+# Busca de endereços por CEP
+
+import requests
+
+link = 'http://viacep.com.br/ws/01001000/json/'
+requisicao = requests.get(link)
+print(requisicao.json())
+
+
+# Busca de cep's por estado, cidade e logradouro
+
+uf = input('Qual seu estado:')
+estado = input('Qual sua cidade:')
+logradouro = input('Qual sua logradouro:')
+
+link2 = f'http://viacep.com.br/ws/{uf}/{estado}/{logradouro}/json/'
+requisicao = requests.get(link2)
+
