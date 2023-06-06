@@ -1,0 +1,148 @@
+#importar ferramentas
+from selenium import webdriver
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.by import By
+import pandas as pd
+import time
+
+#criar navegador
+nav = webdriver.Chrome()
+
+
+#importar/visualizar base de dados
+tabela = pd.read_excel('buscas.xlsx')
+
+def verificar_termos_banidos(lista_termos_banidos,nome):
+    tem_termos_banidos = False
+    for palavra in lista_termos_banidos:
+            if palavra in nome:
+                tem_termos_banidos = True
+    return tem_termos_banidos    
+def verificar_termos_nome_produto(lista_termos_nome_produto,nome):
+    tem_todos_termos_produto = True
+    for palavra in lista_termos_nome_produto:
+            if palavra not in nome:
+                tem_todos_termos_produto = False
+    return tem_todos_termos_produto
+def busca_google_shopping(nav,produto,termos_banidos,preco_minimo,preco_maximo):
+    
+    produto = produto.lower()
+    termos_banidos = termos_banidos.lower()
+    lista_termos_banidos = termos_banidos.split(" ")
+    lista_termos_nome_produto = produto.split(" ")
+    preco_minimo = float(preco_minimo)
+    preco_maximo = float(preco_maximo)
+    lista_ofertas = []
+
+    nav.get('http://www.google.com')
+    barra_busca = nav.find_element(By.TAG_NAME, 'textarea')
+    barra_busca.send_keys(produto,Keys.ENTER)
+    time.sleep(1)
+
+    #entrando no shopping google
+    elementos = nav.find_elements(By.CLASS_NAME,'hdtb-mitem')
+    for item in elementos:
+        if "Shopping" in item.text:
+            item.click()
+            break
+
+    lista_resultados = nav.find_elements(By.CLASS_NAME,'KZmu8e')
+
+    for resultado in lista_resultados:    
+        nome = resultado.find_element(By.TAG_NAME,'h3').text
+        nome = nome.lower()
+        #analisar se ele não tem nenhum termo banido
+        tem_termos_banidos = verificar_termos_banidos(lista_termos_banidos,nome)
+
+        #analiser se ele tem todos os termos do nome do produto
+        tem_todos_termos_produto = verificar_termos_nome_produto(lista_termos_nome_produto,nome)
+
+
+        #selecionando só os elementos que tem tem_termos_banidos = True e tem_todos_termos_produto = False
+        if not tem_termos_banidos and tem_todos_termos_produto:
+            try:
+                preco = resultado.find_element(By.CLASS_NAME,'T14wmb').text
+                preco = preco.replace("R$","").replace(" ","").replace(".","").replace(",",".")
+                preco = float(preco)
+            except:
+                continue
+            preco_minimo = float(preco_minimo)
+            preco_maximo = float(preco_maximo)
+        #se o preco esta entre o preco minimo e maximo
+            if  preco_minimo <= preco <= preco_maximo:
+                link = resultado.find_element(By.TAG_NAME,'a').get_attribute('href') 
+
+                lista_ofertas.append((nome,preco,link))
+                
+    return lista_ofertas 
+    
+    
+    def busca_buscape(nav,produto,termos_banidos,preco_minimo,preco_maximo):
+    produto = produto.lower()
+    termos_banidos = termos_banidos.lower()
+    lista_termos_banidos = termos_banidos.split(" ")
+    lista_termos_nome_produto = produto.split(" ")
+    preco_minimo = float(preco_minimo)
+    preco_maximo = float(preco_maximo)
+    lista_ofertas = []
+    
+    nav.get('https://www.buscape.com.br/')
+    barra_busca = nav.find_element(By.CLASS_NAME,'AutoCompleteStyle_input__HG105').send_keys(produto, Keys.ENTER)
+    
+    #buscando resultados
+    time.sleep(5)
+    lista_resultados = nav.find_elements(By.CLASS_NAME,'SearchCard_ProductCard_Inner__7JhKb')
+    
+    for resultado in lista_resultados:
+        preco = resultado.find_element(By.CLASS_NAME,'Text_MobileHeadingS__Zxam2').text
+        nome = resultado.find_element(By.CLASS_NAME,'SearchCard_ProductCard_Name__ZaO5o').text
+        nome = nome.lower()
+        link = resultado.get_attribute('href')
+        
+        tem_termos_banidos = verificar_termos_banidos(lista_termos_banidos,nome)
+        
+        tem_todos_termos_produto = verificar_termos_nome_produto(lista_termos_nome_produto,nome)
+        
+        if not tem_termos_banidos and tem_todos_termos_produto:
+            preco = preco[0:11]
+            preco = preco.replace("R$","").replace(" ","").replace(".","").replace(",",".")
+            preco = float(preco)   
+            if  preco_minimo <= preco <= preco_maximo:
+                lista_ofertas.append((nome,preco,link))
+    return lista_ofertas
+    
+    tabela_ofertas = pd.DataFrame()
+
+for linha in tabela.index:    
+    produto = tabela.loc[linha,"Nome"]
+    termos_banidos = tabela.loc[linha,"Termos banidos"]
+    preco_minimo = tabela.loc[linha,"Preço mínimo"]
+    preco_maximo = tabela.loc[linha,"Preço máximo"]
+    lista_busca_google_shopping = busca_google_shopping(nav,produto,termos_banidos,preco_minimo,preco_maximo)
+    if lista_busca_google_shopping:
+        tabela_google_shopping = pd.DataFrame(lista_busca_google_shopping, columns=['Produto','Preço','Link'])
+        tabela_ofertas = pd.concat([tabela_ofertas,tabela_google_shopping], ignore_index= True)
+    else:
+        tabela_google_shopping = None
+    lista_ofertas_buscape = busca_buscape(nav,produto,termos_banidos,preco_minimo,preco_maximo)
+    if lista_ofertas_buscape:
+        tabela_buscape = pd.DataFrame(lista_ofertas_buscape, columns=['Produto','Preço','Link'])
+        tabela_ofertas = pd.concat([tabela_ofertas,tabela_buscape], ignore_index= True)
+    else:
+        tabela_buscape = None
+    
+tabela_ofertas.to_excel('ofertas.xlsx', index = False)
+
+import win32com.client as win32
+
+if len(tabela_ofertas) > 0:
+    outlook = win32.Dispatch('outlook.application')
+    mail = outlook.CreateItem(0)
+    mail.To = 'lucas.srdo@gmail.com'
+    mail.Subject = 'Produtos encontrados na faixa de preço deseja'
+    mail.HTMLBody = f"""
+    <p>Prezados,</p>        
+    <p>Encontramos alguns produtos dentro dos preços desejados</p>
+    {tabela_ofertas.to_html(index=False)}
+    """
+    mail.Send()
